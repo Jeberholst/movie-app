@@ -1,12 +1,23 @@
 console.log("Application is live");
 
+const jsonBinUrl = "https://api.jsonbin.io/v3/b";
+
+const config = {
+  urlMovies: "http://www.omdbapi.com/?",
+  apiKeyMovies: "a463d22f",
+  urlBin: `${jsonBinUrl}/63ad624515ab31599e2747e9`,
+  urlSearchHistoryBin: `${jsonBinUrl}/63ad672901a72b59f23b9310`,
+  masterKeyBin: "$2b$10$Al1D35sF5ILwPjCyFHNgLO.rtz3jj32aOPGtrvZh4OjUJM70EcYmW",
+};
+
+
 const urlMovies = config.urlMovies;
 const accessKey = config.apiKeyMovies;
 const urlBin = config.urlBin;
 const masterKeyBin = config.masterKeyBin;
 let activeNav = "movies";
 let searchWord = "";
-let pushResolved = true;
+// let pushResolved = false;
 let page = 1;
 
 const App = {
@@ -24,27 +35,35 @@ const App = {
     searchGenre: document.querySelector(".search-genre"),
     navButtons: [...document.querySelectorAll("nav button")],
   },
-  fetchMovies() {
+  async fetchMovies() {
     setLoading(true);
-    fetch(
+
+    this.listOfSearchHits = [];
+    const tempArr = [];
+
+    const response = await fetch(
       urlMovies +
-        `apikey=${accessKey}&s=${searchWord}&page=${page}&type=${this.elements.searchType.value}`
+      `apikey=${accessKey}&s=${searchWord}&page=${page}&type=${this.elements.searchType.value}`
     )
-      .then((response) => {
-        console.log("Fetching movies", response);
-        return response.json();
-      })
-      .then((data) => {
-        setLoading(false);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data.Search) {
+        console.log(data.Search)
         data.Search.forEach((movie) => {
-          fetchDataAndCreateCard(movie);
+          fetchDataAndCreateCard(movie.imdbID);
+          tempArr.push(movie);
         });
-      })
-      .catch((err) => {
-        console.log(err);
-        setLoading(false);
-      });
-    if (pushResolved) pushHistory();
+      }
+      this.listOfMovies.push(tempArr);
+      addToHistory();
+
+
+    } else {
+      console.log('Something went wrong')
+    }
+
+    setLoading(false);
   },
   fetchFavorites() {
     this.listOfFavorites = [];
@@ -80,36 +99,41 @@ const App = {
         }
       });
   },
-  fetchSearchHits() {
-    setLoading(true);
+  async fetchSearchHits() {
     this.listOfSearchHits = [];
-    fetch(config.urlSearchHistoryBin, {
+
+    console.log("Fetching search hits");
+    const tempArr = [];
+
+    const response = await fetch(config.urlSearchHistoryBin, {
       method: "GET",
       headers: {
         "Content-type": "application/json",
         "X-Master-Key": config.masterKeyBin,
       },
     })
-      .then((response) => {
-        console.log("Fetching search hits", response);
-        return response.json();
-      })
-      .then((data) => {
-        setLoading(false);
-        data.record.forEach((movie) => {
-          addMovieToHistory(movie);
-        });
-      })
-      .catch((err) => {
-        setLoading(false);
-        console.log(err);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('Records:: ', data)
+      data.record.forEach((imdbId) => {
+        tempArr.push(imdbId);
       });
+
+      this.listOfSearchHits.push(...tempArr);
+
+    } else {
+      console.log(response.status);
+    }
+
   },
   createFavorite(id, favoriteBtn) {
-    const movie = this.listOfMovies.find((movie) => movie.imdbID == id);
-    this.listOfFavorites.push(movie);
-    pushFavorites(this.listOfFavorites);
-    favoriteBtn.textContent = "Remove favorite";
+    const foundMovie = findMovieById(id);
+    if (foundMovie) {
+      pushToFavorites(foundMovie);
+      addToFavorites();
+      favoriteBtn.textContent = "Remove favorite";
+    }
   },
   removeFavorite(id, favoriteBtn) {
     const movieIndex = this.listOfFavorites.findIndex(
@@ -119,7 +143,7 @@ const App = {
     if (this.listOfFavorites.length < 1) {
       this.listOfFavorites = [{}];
     }
-    pushFavorites(this.listOfFavorites);
+    addToFavorites();
     favoriteBtn.textContent = "Add to favorites";
   },
   render() {
@@ -129,39 +153,17 @@ const App = {
 };
 
 //For testing
-function fetchTestDataAndCreateCard() {
-  let arr = { ...localStorage };
-  for (const [key, value] of Object.entries(arr)) {
-    App.listOfMovies.push(JSON.parse(value));
-    createCard(JSON.parse(value), false);
-    console.log(JSON.parse(value));
-  }
-}
+// function fetchTestDataAndCreateCard() {
+//   let arr = { ...localStorage };
+//   for (const [key, value] of Object.entries(arr)) {
+//     App.listOfMovies.push(JSON.parse(value));
+//     createCard(JSON.parse(value), false);
+//     console.log(JSON.parse(value));
+//   }
+// }
 
-//For prod
-function fetchDataAndCreateCard(movie) {
-  const isActive = false;
-  fetch(urlMovies + `apikey=${accessKey}&plot=full&i=${movie.imdbID}`)
-    .then((response) => {
-      return response.json();
-    })
-    .then((data) => {
-      if (!App.elements.searchGenre.value || activeNav == "favorites") {
-        App.listOfMovies.push(data);
-        addMovieToHistory(data);
-        createCard(data, isActive);
-      } else {
-        let genres = data.Genre.split(", ");
-        if (genres.indexOf(App.elements.searchGenre.value) !== -1) {
-          App.listOfMovies.push(data);
-          addMovieToHistory(data);
-          createCard(data, isActive);
-        }
-      }
-    })
-    .catch((err) => {
-      console.log(err);
-    });
+function findMovieById(id) {
+  return App.listOfMovies.find((movie) => movie.imdbID == id);
 }
 
 function initSearch() {
@@ -211,6 +213,7 @@ function toggleCard(id) {
   element.scrollIntoView();
 }
 
+
 // Html contents
 function setCardContent(movie, isActive) {
   const isListedFavorite = isFavorite(movie.imdbID);
@@ -238,12 +241,10 @@ function setCardContent(movie, isActive) {
           <h4>⭐${rating}</h4>
         </span>
         <span class="buttons-container">
-          <button class="${buttonClass}" onclick=toggleFavorite('${
-    movie.imdbID
-  }')>${isListedFavorite ? "Remove favorite" : "Add to favorites"}</button>
-          <button class="toggle-card" onclick="toggleCard('${
-            movie.imdbID
-          }')">About</button>
+          <button class="${buttonClass}" onclick=toggleFavorite('${movie.imdbID
+    }')>${isListedFavorite ? "Remove favorite" : "Add to favorites"}</button>
+          <button class="toggle-card" onclick="toggleCard('${movie.imdbID
+    }')">About</button>
         </span>
       </section>
     </article>
@@ -257,9 +258,8 @@ function setCardContent(movie, isActive) {
       <section>
         <span>
           <h3>${movie.Title}</h3>
-          <button class="${buttonClass}" onclick=toggleFavorite('${
-    movie.imdbID
-  }')>${isListedFavorite ? "Remove favorite" : "Add to favorites"}</button>
+          <button class="${buttonClass}" onclick=toggleFavorite('${movie.imdbID
+    }')>${isListedFavorite ? "Remove favorite" : "Add to favorites"}</button>
         </span>
         <span>
           <ul>
@@ -378,14 +378,19 @@ function isScrolledBottom() {
   }
 }
 
-function pushFavorites(favoritesList) {
+
+function pushToFavorites(movieData) {
+  App.listOfFavorites.push(movieData)
+}
+
+function addToFavorites() {
   fetch(config.urlBin, {
     method: "PUT",
     headers: {
       "Content-type": "application/json",
       "X-Master-Key": config.masterKeyBin,
     },
-    body: JSON.stringify(favoritesList),
+    body: JSON.stringify(App.listOfFavorites),
   })
     .then((response) => {
       console.log("Pushing favorites: ", response);
@@ -395,36 +400,13 @@ function pushFavorites(favoritesList) {
     });
 }
 
-async function pushHistory() {
-  pushResolved = false;
-  fetch(config.urlSearchHistoryBin, {
-    method: "PUT",
-    headers: {
-      "Content-type": "application/json",
-      "X-Master-Key": config.masterKeyBin,
-    },
-    body: JSON.stringify(App.listOfSearchHits),
-  })
-    .then((response) => {
-      console.log("Pushing history: ", response);
-      pushResolved = true;
-    })
-    .catch((err) => {
-      console.log(err);
-      pushResolved = true;
-    });
-}
+
 
 function addMovieToHistory(movie) {
-  if (
-    App.listOfSearchHits.filter((item) => item.imdbID == movie.imdbID).length ==
-    0
-  ) {
-    App.listOfSearchHits.push(movie);
-  }
+  App.listOfSearchHits.push(movie.imdbID);
 }
 
-function getRandomMovies() {
+function renderSearchHistory() {
   let list = App.listOfSearchHits;
   console.log(list);
   document.querySelector(".search").value = "";
@@ -445,13 +427,15 @@ function getRandomNum(roof) {
   return Math.floor(Math.random() * roof);
 }
 
-function createCard(movie, isActive) {
+function renderMovieCard(movie, isActive) {
   const card = document.createElement("div");
-  card.classList.add("card");
   const id = movie.imdbID;
+
+  card.classList.add("card");
   card.id = id;
   card.innerHTML = setCardContent(movie, isActive);
   App.elements.movieListContainer.appendChild(card);
+
 }
 
 //Routes
@@ -489,6 +473,75 @@ App.elements.navButtons.forEach((button) => {
     navRoute(button.name);
   });
 });
+
+/**
+ * It takes the list of search hits and pushes it to the history bin.
+ */
+async function addToHistory() {
+
+  fetch(config.urlSearchHistoryBin, {
+    method: "PUT",
+    headers: {
+      "Content-type": "application/json",
+      "X-Master-Key": config.masterKeyBin,
+    },
+    body: JSON.stringify(App.listOfSearchHits),
+  })
+    .then((response) => {
+      console.log("Pushing history: ", response);
+    })
+    .catch((err) => {
+      console.log(err);
+    });
+}
+
+
+/**
+ * It takes an id as an argument, fetches the data from the API, and returns the data as a JSON object.
+ * @param id - the id of the movie you want to fetch
+ * @returns The data is being returned as a promise.
+ */
+async function fetchShortMovieDataById(id) {
+  const response = await fetch(urlMovies + `apikey=${accessKey}&plot=short&i=${id}`);
+  const data = await response.json();
+  return data;
+}
+
+
+/**
+ * This function takes an id as an argument, and returns a promise that resolves to the full movie data
+ * for that id.
+ * @param id - the id of the movie you want to fetch
+ * @returns A promise that resolves to the data.
+ */
+async function fetchFullMovieDataById(id) {
+  const response = await fetch(urlMovies + `apikey=${accessKey}&plot=full&i=${id}`);
+  const data = await response.json();
+  return data;
+}
+
+//For prod
+/**
+ * It fetches data from an API, then creates a card with that data.
+ * @param movieImdbId - string
+ */
+async function fetchDataAndCreateCard(movieImdbId) {
+
+  /* Fetching the full movie data by the movie's IMDB ID. */
+  const movieData = await fetchFullMovieDataById(movieImdbId);
+
+  const isActive = false;
+
+  if (movieData) {
+    /* Pushing the movieData object into the listOfMovies array. */
+    App.listOfMovies.push(movieData);
+    /* Calling the addMovieToHistory function and passing in the movieData object. */
+    addMovieToHistory(movieData);
+    /* Calling the renderMovieCard function and passing in the movieData and isActive variables. */
+    renderMovieCard(movieData, isActive);
+  }
+}
+
 
 //Render app
 App.render();
